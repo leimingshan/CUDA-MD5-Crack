@@ -329,6 +329,7 @@ int available_words = 1;
 int current_words = 0;
 struct wordlist_file file;
 char input_hash[4][9];
+cudaError_t Status = cudaSuccess;
 
 	print_info();
 
@@ -405,11 +406,14 @@ char input_hash[4][9];
 	}
 
 	// put our target hash into the GPU constant memory as this will not change (and we can't spare shared memory for speed)
-	if (cudaMemcpyToSymbol("target_hash", device.target_hash, 16, 0, cudaMemcpyHostToDevice) != CUDA_SUCCESS) {
-		printf("Error initalizing constants\n");
-		return -1;
-	}
-
+	/*
+	Status = cudaMemcpyToSymbol(target_hash, device.target_hash, 16, 0, cudaMemcpyHostToDevice);
+	if(Status != cudaSuccess)
+    {
+        printf(cudaGetErrorString(Status));
+        return -1;
+    }
+    */
 	#ifdef BENCHMARK
 		// these will be used to benchmark
 		int counter = 0;

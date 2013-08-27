@@ -5,7 +5,7 @@
 #define UINT4 uint
 
 extern __shared__ unsigned int words[];			// shared memory where hash will be stored
-__constant__ unsigned int target_hash[4];		// constant has we will be searching for
+__constant__ unsigned int target_hash[4];		// constant hash we will be searching for
 
 __device__ unsigned int *format_shared_memory(unsigned int thread_id, unsigned int *memory) {
 unsigned int *shared_memory;
@@ -207,6 +207,11 @@ int x;
 extern "C" void md5_calculate(struct cuda_device *device) {
 cudaEvent_t start, stop;
 float time;
+  
+  if (cudaMemcpyToSymbol(target_hash, device->target_hash, 16, 0, cudaMemcpyHostToDevice) != CUDA_SUCCESS) {
+    printf("Error initializing constants\n");
+    return;
+  }
 
 	#ifdef GPU_BENCHMARK
 	cudaEventCreate(&start);
