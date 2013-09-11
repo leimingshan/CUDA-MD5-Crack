@@ -1,0 +1,29 @@
+# Object files
+*.o
+
+# Libraries
+*.lib
+*.a
+
+# Shared objects (inc. Windows DLLs)
+*.dll
+*.so
+*.so.*
+*.dylib
+
+# Executables
+*.exe
+*.out
+*.app
+
+# CUDA objects
+md5.cpp*
+md5.cuda*
+md5.fatbin
+md5.fatbin.c
+md5.ptx
+md5.sm_10*
+md5.module_id
+md5.hash
+md5.cu.cpp.ii
+main
