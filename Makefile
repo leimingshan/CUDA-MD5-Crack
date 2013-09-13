@@ -1,9 +1,9 @@
 INCLUDE_PATH = /usr/local/cuda/include
 LIB_PATH = /usr/local/cuda/lib
 CUDA_CC = /usr/local/cuda/bin/nvcc
-CUDA_CFLAGS = -I$(INCLUDE_PATH) -keep -DGPU_BENCHMARK #-DDEBUG -DBENCHMARK
+CUDA_CFLAGS = -I$(INCLUDE_PATH) -keep -DGPU_BENCHMARK -DBENCHMARK #-DDEBUG
 CC = gcc
-CFLAGS = -I$(INCLUDE_PATH) -L$(LIB_PATH) -lcudart #-DDEBUG -DBENCHMARK
+CFLAGS = -I$(INCLUDE_PATH) -L$(LIB_PATH) -lcudart -DBENCHMARK #-DDEBUG
 
 main: main.c main.h md5.o
 	$(CC) main.c md5.o -o main $(CFLAGS)

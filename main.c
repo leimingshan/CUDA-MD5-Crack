@@ -201,7 +201,7 @@ int x;
 	file->len = stat.st_size;
 	file->map = mmap(NULL, file->len, PROT_READ, MAP_SHARED, file->fd, 0);
 
-	if (file->map == -1) {
+	if (file->map == (char *)-1) {
 		// could not create a MAP
 		return -1;
 	}
@@ -498,6 +498,6 @@ cudaError_t Status = cudaSuccess;
 		gettimeofday(&end, NULL);
 		long long time = (end.tv_sec * (unsigned int)1e6 + end.tv_usec) - (start.tv_sec * (unsigned int)1e6 + start.tv_usec);
 		printf("Time taken to check %d hashes: %f seconds\n", counter, (float)((float)time / 1000.0) / 1000.0);
-		printf("Words per second: %d\n", counter / (time / 1000) * 1000);
+		printf("Words per second: %lld\n", counter / (time / 1000) * 1000);
 	#endif
 }

@@ -208,7 +208,7 @@ extern "C" void md5_calculate(struct cuda_device *device) {
 cudaEvent_t start, stop;
 float time;
   
-  if (cudaMemcpyToSymbol(target_hash, device->target_hash, 16, 0, cudaMemcpyHostToDevice) != CUDA_SUCCESS) {
+  if (cudaMemcpyToSymbol(target_hash, device->target_hash, 16, 0, cudaMemcpyHostToDevice) != cudaSuccess) {
     printf("Error initializing constants\n");
     return;
   }
