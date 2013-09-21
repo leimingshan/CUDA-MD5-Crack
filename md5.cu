@@ -208,6 +208,8 @@ extern "C" void md5_calculate(struct cuda_device *device) {
 cudaEvent_t start, stop;
 float time;
   
+  // put our target hash into the GPU constant memory as this will not change 
+  // (and we can't spare shared memory for speed)
   if (cudaMemcpyToSymbol(target_hash, device->target_hash, 16, 0, cudaMemcpyHostToDevice) != cudaSuccess) {
     printf("Error initializing constants\n");
     return;
