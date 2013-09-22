@@ -57,7 +57,6 @@ struct cuda_device {
 	void *device_debug_memory;
 };
 
-extern __shared__ unsigned int words[];			// shared memory where hash will be stored
 __constant__ unsigned int target_hash[4];		// constant hash we will be searching for
 __constant__ unsigned char char_set[63] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
 /*
@@ -324,7 +323,7 @@ static void md5_calculate(struct cuda_device *device)
 	cudaThreadSynchronize();
 #endif
 
-	md5_cuda_calculate <<< device->max_blocks, device->max_threads, device->shared_memory >>> ((struct device_stats *)device->device_stats_memory, (unsigned int *)device->device_debug_memory, device->base_num, device->word_length);
+	md5_cuda_calculate <<< device->max_blocks, device->max_threads >>> ((struct device_stats *)device->device_stats_memory, (unsigned int *)device->device_debug_memory, device->base_num, device->word_length);
 
 #ifdef GPU_BENCHMARK
 	cudaEventRecord(stop, 0);
@@ -361,7 +360,7 @@ int get_cuda_device(struct cuda_device *device)
 }
 
 #define REQUIRED_SHARED_MEMORY 64
-#define FUNCTION_PARAM_ALLOC 256
+#define FUNCTION_PARAM_ALLOC 0
 
 int calculate_cuda_params(struct cuda_device *device) 
 {
