@@ -1,17 +1,44 @@
 #include "cuda_runtime.h"
 #include "device_launch_parameters.h"
+#include <cuda.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <driver_types.h>
 #include <sys/types.h>
 #include <sys/stat.h>
-#include <math.h>
-
+/*
+#if defined(__CUDA_ARCH__) && (__CUDA_ARCH__ < 200)
+  # error printf is only supported on devices of compute capability 2.0 and higher, please compile with -arch=sm_20 or higher    
+#endif
+*/
 #ifdef _WIN32
 #include <Winsock2.h>
+#include <Windows.h>
 #pragma comment(lib,"ws2_32.lib")
 typedef unsigned __int64 uint64_t;
+// Fuctions use windows API to calculate time
+static double PCFreq = 0.0;
+static __int64 CounterStart = 0;
+
+void StartCounter()
+{
+	LARGE_INTEGER li;
+	if(!QueryPerformanceFrequency(&li))
+		printf("QueryPerformanceFrequency failed!\n");
+
+	PCFreq = double(li.QuadPart) / 1000.0;
+
+	QueryPerformanceCounter(&li);
+	CounterStart = li.QuadPart;
+}
+
+double GetCounter()
+{
+	LARGE_INTEGER li;
+	QueryPerformanceCounter(&li);
+	return double(li.QuadPart-CounterStart) / PCFreq;
+}
 #else
 #include <sys/time.h>
 #include <arpa/inet.h>
@@ -27,7 +54,7 @@ typedef unsigned int uint32_t;
 typedef unsigned short uint16_t;
 typedef unsigned char uint8_t;
 
-#define WORD_LENGTH 4
+#define WORD_LENGTH 6
 
 struct device_stats {
 	unsigned char word[64];			// found word passed from GPU
@@ -245,7 +272,7 @@ __global__ void md5_cuda_calculate(struct device_stats *stats, unsigned int *deb
 	uint md5_padded_int[16];
 
 	id = (blockIdx.x * blockDim.x) + threadIdx.x;		// get our thread unique ID in this run
-
+	
 	value = base + id;
 
 	// calculate the word according to value
@@ -307,14 +334,7 @@ static void md5_calculate(struct cuda_device *device)
 {
 	cudaEvent_t start, stop;
 	float time;
-
-	// put our target hash into the GPU constant memory as this will not change 
-	// (and we can't spare shared memory for speed)
-	if (cudaMemcpyToSymbol(target_hash, device->target_hash, 16, 0, cudaMemcpyHostToDevice) != cudaSuccess) {
-		printf("Error initializing constants\n");
-		return;
-	}
-
+	
 #ifdef GPU_BENCHMARK
 	cudaEventCreate(&start);
 	cudaEventCreate(&stop);
@@ -497,7 +517,7 @@ int main(int argc, char **argv)
 	int word_length;
 
 	print_info();
-
+		
 	if (argc != ARG_COUNT) {
 		printf("Usage: %s MD5_HASH\n", argv[0]);
 		return -1;
@@ -511,7 +531,7 @@ int main(int argc, char **argv)
 
 	// we now need to calculate the optimal amount of threads to use for this card
 	calculate_cuda_params(&device);
-
+	
 	// now we input our target hash
 	if (strlen(argv[ARG_MD5]) != 32) {
 		printf("Not a valid MD5 Hash (should be 32 bytes and only Hex Chars\n");
@@ -522,7 +542,7 @@ int main(int argc, char **argv)
 	memset(input_hash, 0, sizeof(input_hash));
 
 	for(x = 0; x < 4; x++) {
-		strncpy(input_hash[x], argv[ARG_MD5] + (x * 8), 8);		
+		strncpy(input_hash[x], argv[ARG_MD5] + (x * 8), 8);
 		device.target_hash[x] = htonl(_httoi(input_hash[x]));
 	}
 
@@ -550,37 +570,59 @@ int main(int argc, char **argv)
 		return -1;
 	}
 
+	if (cudaMemcpyToSymbol(target_hash, device.target_hash, 16, 0, cudaMemcpyHostToDevice) != cudaSuccess) {
+		printf("Error initializing constants\n");
+		return -1;
+	}
+	
 	#ifdef BENCHMARK
 		// these will be used to benchmark
-		int counter = 0;
+		uint64_t counter = 0;
+
+		#ifdef _WIN32
+		StartCounter();
+		#else
 		struct timeval start, end;
 		// start timer
 		gettimeofday(&start, NULL);
+		#endif
 	#endif
-
+	
 	for (word_length = min_length; word_length <= max_length; word_length++) {
-		long max_num = (long)pow(62, word_length);
+		uint64_t max_num = 62; // (uint64_t)pow(62, word_length);
 		int max_thread_num = device.max_blocks * device.max_threads;
-		int batch_num = ceil(max_num / max_thread_num);
-
 		unsigned int *m;
-		int j;
+		int i, j;
+		int batch_num;
 
-	#ifdef BENCHMARK
-		counter+=max_num;;		// increment counter for this word
-	#endif
+		for (i = 1; i < word_length; i++)
+			max_num *= 62;
+	
+		batch_num = max_num / max_thread_num + 1;
+
+		#ifdef BENCHMARK
+			counter += max_num;;		// increment counter for this word
+		#endif
 
 		for (j = 0; j < batch_num; j++) {
 			device.base_num = j * max_thread_num;
 			device.word_length = word_length;
 
+			if (cudaMemset(device.device_stats_memory, 0, sizeof(struct device_stats)) != cudaSuccess) {
+				printf("Error Clearing Stats on device\n");
+				return -1;
+			}
+
 			md5_calculate(&device);		// launch the kernel of the CUDA device
-			
+
+			cudaThreadSynchronize();
+
+			memset(&device.stats, 0, sizeof(struct device_stats));
+
 			if (cudaMemcpy(&device.stats, device.device_stats_memory, sizeof(struct device_stats), cudaMemcpyDeviceToHost) != cudaSuccess) {
 				printf("Error Copying STATS from the GPU\n");
 				return -1;
 			}
-
 
 			#ifdef DEBUG
 			// For debug, we will receive the hashes for verification
@@ -606,10 +648,9 @@ int main(int argc, char **argv)
 				}
 			#endif
 
-			cudaThreadSynchronize();
-
 			if (device.stats.hash_found == 1) {
 				printf("WORD FOUND: [%s]\n", (char *)device.stats.word);
+				printf("WORD LENGTH: %d\n", word_length);
 				break;
 			}
 		}
@@ -618,15 +659,22 @@ int main(int argc, char **argv)
 	if (device.stats.hash_found != 1) {
 		printf("No word could be found for the provided MD5 hash\n");
 	}
-
-	#ifdef BENCHMARK 
+	
+	#ifdef BENCHMARK
+		#ifdef _WIN32
+		double time = GetCounter();
+		printf("Time taken to check %lld hashes: %f seconds\n", counter, time / 1000);
+		printf("Words per second: %.f\n", (double)counter / (time / 1000));
+		#else
 		gettimeofday(&end, NULL);
-		long long time = (end.tv_sec * (unsigned int)1e6 + end.tv_usec) - (start.tv_sec * (unsigned int)1e6 + start.tv_usec);
-		printf("Time taken to check %d hashes: %f seconds\n", counter, (float)((float)time / 1000.0) / 1000.0);
+		uint64_t time = (end.tv_sec * (unsigned int)1e6 + end.tv_usec) - (start.tv_sec * (unsigned int)1e6 + start.tv_usec);
+		printf("Time taken to check %lld hashes: %f seconds\n", counter, (float)((float)time / 1000.0) / 1000.0);
 		printf("Words per second: %lld\n", counter / (time / 1000) * 1000);
+		#endif
 	#endif
 
 	cudaDeviceReset();
+
 	return 0;
 }
 
