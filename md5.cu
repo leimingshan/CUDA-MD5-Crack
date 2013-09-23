@@ -617,6 +617,8 @@ int main(int argc, char **argv)
 	#endif
 
 	cudaDeviceReset();
+	cudaFree(device.device_stats_memory);
+	free(device.host_memory);
 
 	return 0;
 }
