@@ -54,7 +54,7 @@ typedef unsigned int uint32_t;
 typedef unsigned short uint16_t;
 typedef unsigned char uint8_t;
 
-#define WORD_LENGTH 6
+#define WORD_LENGTH 4
 
 struct device_stats {
 	unsigned char word[64];			// found word passed from GPU
@@ -79,32 +79,10 @@ struct cuda_device {
 	unsigned int target_hash[4];
 	uint64_t base_num;
 	int word_length;
-
-	// to be used for debugging
-	void *device_debug_memory;
 };
 
 __constant__ unsigned int target_hash[4];		// constant hash we will be searching for
 __constant__ unsigned char char_set[63] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
-/*
-__device__ unsigned int *format_shared_memory(unsigned int thread_id, unsigned int *memory) 
-{
-	unsigned int *shared_memory;
-	unsigned int *global_memory;
-	int i;
-
-	// we need to get a pointer to our shared memory portion
-
-	shared_memory = &words[threadIdx.x * 16];
-	global_memory = &memory[thread_id * 16];
-
-	for(i = 0; i < 16; i++) {
-		shared_memory[i] = global_memory[i];
-	}
-
-	return shared_memory;
-}
-*/
 
 /* F, G and H are basic MD5 functions: selection, majority, parity */
 
@@ -257,7 +235,7 @@ __device__ void md5(uint *in, uint *hash)
 	return;
 }
 
-__global__ void md5_cuda_calculate(struct device_stats *stats, unsigned int *debug_memory, uint64_t base, int word_length)
+__global__ void md5_cuda_calculate(struct device_stats *stats, uint64_t base, int word_length)
 {
 	unsigned int id;
 	uint hash[4];
@@ -313,12 +291,6 @@ __global__ void md5_cuda_calculate(struct device_stats *stats, unsigned int *deb
 
 	md5(md5_padded_int, hash);	// actually calculate the MD5 hash
 
-#ifdef DEBUG
-	// passes the computed hashes into debug memory
-	for (x = 0; x < 4; x++) 
-		debug_memory[(id * 4) + x] = hash[x];
-#endif
-
 	if (hash[0] == target_hash[0] && hash[1] == target_hash[1] 
 		&& hash[2] == target_hash[2] && hash[3] == target_hash[3]) {
 		// !! WE HAVE A MATCH !!
@@ -343,7 +315,7 @@ static void md5_calculate(struct cuda_device *device)
 	cudaThreadSynchronize();
 #endif
 
-	md5_cuda_calculate <<< device->max_blocks, device->max_threads >>> ((struct device_stats *)device->device_stats_memory, (unsigned int *)device->device_debug_memory, device->base_num, device->word_length);
+	md5_cuda_calculate <<< device->max_blocks, device->max_threads >>> ((struct device_stats *)device->device_stats_memory, device->base_num, device->word_length);
 
 #ifdef GPU_BENCHMARK
 	cudaEventRecord(stop, 0);
@@ -481,22 +453,6 @@ int _httoi(const char *value)
 
 /*************************************************************************/
 
-
-/* Encodes input (UINT4) into output (unsigned char). Assumes len is
-  a multiple of 4.
- */
-static void Encode(unsigned char *output, unsigned int *input, unsigned int len)
-{
-  unsigned int i, j;
-
-  for (i = 0, j = 0; j < len; i++, j += 4) {
-    output[j] = (unsigned char)(input[i] & 0xff);
-    output[j+1] = (unsigned char)((input[i] >> 8) & 0xff);
-    output[j+2] = (unsigned char)((input[i] >> 16) & 0xff);
-    output[j+3] = (unsigned char)((input[i] >> 24) & 0xff);
-  }
-}
-
 static void print_info(void)
 {
 	printf("CUDA-MD5-Crack programmed by LMS-BUPT\n\n");
@@ -508,13 +464,16 @@ static void print_info(void)
 
 int main(int argc, char **argv) 
 {
-	int x, i;
+	int x;
 	struct cuda_device device;
 	char input_hash[4][9];
 
 	int min_length = 1;
 	int max_length = WORD_LENGTH;
 	int word_length;
+
+	int found = false;
+	char result[WORD_LENGTH] = {0};
 
 	print_info();
 		
@@ -552,12 +511,6 @@ int main(int argc, char **argv)
 		return -1;
 	}
 
-	// allocate debug memory if required
-	if (cudaMalloc(&device.device_debug_memory, device.device_global_memory_len) != cudaSuccess) {
-		printf("Error allocating memory on device (debug memory)\n");
-		return -1;
-	}
-
 	// make sure the stats are clear on the device
 	if (cudaMemset(device.device_stats_memory, 0, sizeof(struct device_stats)) != cudaSuccess) {
 		printf("Error Clearing Stats on device\n");
@@ -577,7 +530,8 @@ int main(int argc, char **argv)
 	
 	#ifdef BENCHMARK
 		// these will be used to benchmark
-		uint64_t counter = 0;
+		uint64_t word_counter = 0;
+		uint64_t calc_counter = 0;
 
 		#ifdef _WIN32
 		StartCounter();
@@ -591,7 +545,7 @@ int main(int argc, char **argv)
 	for (word_length = min_length; word_length <= max_length; word_length++) {
 		uint64_t max_num = 62; // (uint64_t)pow(62, word_length);
 		int max_thread_num = device.max_blocks * device.max_threads;
-		unsigned int *m;
+
 		int i, j;
 		int batch_num;
 
@@ -601,7 +555,7 @@ int main(int argc, char **argv)
 		batch_num = max_num / max_thread_num + 1;
 
 		#ifdef BENCHMARK
-			counter += max_num;;		// increment counter for this word
+			word_counter += max_num;;		// increment counter for this word
 		#endif
 
 		for (j = 0; j < batch_num; j++) {
@@ -617,6 +571,10 @@ int main(int argc, char **argv)
 
 			cudaThreadSynchronize();
 
+			#ifdef BENCHMARK
+				calc_counter += max_thread_num;		// increment counter for this word
+			#endif
+
 			memset(&device.stats, 0, sizeof(struct device_stats));
 
 			if (cudaMemcpy(&device.stats, device.device_stats_memory, sizeof(struct device_stats), cudaMemcpyDeviceToHost) != cudaSuccess) {
@@ -624,52 +582,37 @@ int main(int argc, char **argv)
 				return -1;
 			}
 
-			#ifdef DEBUG
-			// For debug, we will receive the hashes for verification
-				memset(device.host_memory, 0, device.device_global_memory_len);
-				if (cudaMemcpy(device.host_memory, device.device_debug_memory, device.device_global_memory_len, cudaMemcpyDeviceToHost) != cudaSuccess) {
-					printf("Error Copying words from GPU\n");
-					return -1;
-				}
-
-				cudaThreadSynchronize();
-
-				// prints out the debug hash'es
-				printf("MD5 registers:\n\n");
-				m = (unsigned int *)device.host_memory;
-				for(x = 0; x < (device.max_blocks * device.max_threads); x++) {
-					unsigned char output[32];
-					printf("word-value: [%lld] --\n", x + device.base_num);
-					
-					Encode(output, m + x * 4, 32);
-					printf("%d\n", m[x*4]);
-					printf("md5: [%s]", output);
-					printf("-------------------\n\n");
-				}
-			#endif
-
 			if (device.stats.hash_found == 1) {
 				printf("WORD FOUND: [%s]\n", (char *)device.stats.word);
 				printf("WORD LENGTH: %d\n", word_length);
+				strncpy(result, (char *)device.stats.word, word_length);
+				found = true;
 				break;
 			}
 		}
+
+		if (found == true)
+			break;
 	}
 
-	if (device.stats.hash_found != 1) {
+	printf("\nResult:\n");
+	if (found == false) {
 		printf("No word could be found for the provided MD5 hash\n");
+	} else {
+		printf("WORD FOUND: [%s]\n", result);
 	}
 	
 	#ifdef BENCHMARK
+		printf("\nStats:\nTotal Words: %lld\n", word_counter);
 		#ifdef _WIN32
 		double time = GetCounter();
-		printf("Time taken to check %lld hashes: %f seconds\n", counter, time / 1000);
-		printf("Words per second: %.f\n", (double)counter / (time / 1000));
+		printf("Time taken to check %lld hashes: %f seconds\n", calc_counter, time / 1000);
+		printf("Words per second: %.f\n", (double)calc_counter / (time / 1000));
 		#else
 		gettimeofday(&end, NULL);
 		uint64_t time = (end.tv_sec * (unsigned int)1e6 + end.tv_usec) - (start.tv_sec * (unsigned int)1e6 + start.tv_usec);
-		printf("Time taken to check %lld hashes: %f seconds\n", counter, (float)((float)time / 1000.0) / 1000.0);
-		printf("Words per second: %lld\n", counter / (time / 1000) * 1000);
+		printf("Time taken to check %lld hashes: %f seconds\n", calc_counter, (float)((float)time / 1000.0) / 1000.0);
+		printf("Words per second: %lld\n", calc_counter * 1000 / time  * 1000);
 		#endif
 	#endif
 
