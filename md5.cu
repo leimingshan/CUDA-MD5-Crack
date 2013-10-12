@@ -585,7 +585,7 @@ int main(int argc, char **argv)
 			if (device.stats.hash_found == 1) {
 				printf("WORD FOUND: [%s]\n", (char *)device.stats.word);
 				printf("WORD LENGTH: %d\n", word_length);
-				strncpy(result, (char *)device.stats.word, word_length);
+				strcpy(result, (char *)device.stats.word);
 				found = true;
 				break;
 			}
