@@ -54,7 +54,7 @@ typedef unsigned int uint32_t;
 typedef unsigned short uint16_t;
 typedef unsigned char uint8_t;
 
-#define WORD_LENGTH 4
+#define WORD_LENGTH 5
 
 struct device_stats {
 	unsigned char word[64];			// found word passed from GPU
@@ -246,7 +246,7 @@ __global__ void md5_cuda_calculate(struct device_stats *stats, uint64_t base, in
 
 	int i, j;
 
-	unsigned char md5_padded[64];
+    unsigned char md5_padded[64] = {0};
 	uint md5_padded_int[16];
 
 	id = (blockIdx.x * blockDim.x) + threadIdx.x;		// get our thread unique ID in this run
@@ -264,8 +264,7 @@ __global__ void md5_cuda_calculate(struct device_stats *stats, uint64_t base, in
 
 		while (i >= 0 && result > 0)
 		{
-			uint64_t val = result % 62;
-			word[i] = char_set[val];
+			word[i] = char_set[result % 62];
 			result /= 62;
 			i--;
 		}
@@ -273,7 +272,6 @@ __global__ void md5_cuda_calculate(struct device_stats *stats, uint64_t base, in
 
 	// md5 padding
 	orig_input_length = word_length * 8;
-	memset(md5_padded, 0, 64);
 
 	for(x = 0; x < word_length && x < 56; x++) {
 		md5_padded[x] = word[x];
@@ -287,7 +285,6 @@ __global__ void md5_cuda_calculate(struct device_stats *stats, uint64_t base, in
 	for (i = 0, j = 0; j < 64; i++, j += 4)
 		md5_padded_int[i] = ((uint)md5_padded[j]) | (((uint)md5_padded[j+1]) << 8) |
 		(((uint)md5_padded[j+2]) << 16) | (((uint)md5_padded[j+3]) << 24);
-
 
 	md5(md5_padded_int, hash);	// actually calculate the MD5 hash
 
@@ -324,7 +321,6 @@ static void md5_calculate(struct cuda_device *device)
 	cudaEventDestroy(start);
 	cudaEventDestroy(stop);
 	printf("CUDA kernel took %fms to calculate %d x %d (%d) hashes\n", time, device->max_blocks, device->max_threads, device->max_blocks * device->max_threads);
-	// print GPU stats here
 #endif
 
 }
@@ -367,9 +363,9 @@ int calculate_cuda_params(struct cuda_device *device)
 	//while ((shared_memory / max_threads) < REQUIRED_SHARED_MEMORY) { max_threads--; } 
 
 	// now we spread our threads across blocks 
-	max_blocks = 54;		// we need to calculate & adjust this !
+	max_blocks = 384;		// we need to calculate & adjust this !
 
-	device->max_threads = max_threads;		// most threads we support
+	device->max_threads = 512;		// most threads we support
 	device->max_blocks = max_blocks;		// most blocks we support
 	device->shared_memory = shared_memory;		// shared memory required
 
