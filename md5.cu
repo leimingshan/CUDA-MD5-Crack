@@ -54,6 +54,7 @@ typedef unsigned int uint32_t;
 typedef unsigned short uint16_t;
 typedef unsigned char uint8_t;
 
+#define CHAR_SET_LENGTH 62
 #define WORD_LENGTH 5
 
 struct device_stats {
@@ -255,7 +256,7 @@ __global__ void md5_cuda_calculate(struct device_stats *stats, uint64_t base, in
 
 	// calculate the word according to value
 	memset(word, char_set[0], WORD_LENGTH);
-	if (value < 62) {
+	if (value < CHAR_SET_LENGTH) {
 		word[word_length - 1] = char_set[value];
 		return;
 	} else {
@@ -264,8 +265,8 @@ __global__ void md5_cuda_calculate(struct device_stats *stats, uint64_t base, in
 
 		while (i >= 0 && result > 0)
 		{
-			word[i] = char_set[result % 62];
-			result /= 62;
+			word[i] = char_set[result % CHAR_SET_LENGTH];
+			result /= CHAR_SET_LENGTH;
 			i--;
 		}
 	}
@@ -539,14 +540,14 @@ int main(int argc, char **argv)
 	#endif
 	
 	for (word_length = min_length; word_length <= max_length; word_length++) {
-		uint64_t max_num = 62; // (uint64_t)pow(62, word_length);
+		uint64_t max_num = CHAR_SET_LENGTH; // (uint64_t)pow(CHAR_SET_LENGTH, word_length);
 		int max_thread_num = device.max_blocks * device.max_threads;
 
 		int i, j;
 		int batch_num;
 
 		for (i = 1; i < word_length; i++)
-			max_num *= 62;
+			max_num *= CHAR_SET_LENGTH;
 	
 		batch_num = max_num / max_thread_num + 1;
 
